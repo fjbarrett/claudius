@@ -1,0 +1,3 @@
+# claudius runtime deps. Intentionally tiny — the model client uses stdlib
+# urllib, so the only third-party requirement is a YAML parser for the config.
+PyYAML>=6.0

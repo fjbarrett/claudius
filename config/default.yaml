@@ -1,0 +1,87 @@
+# claudius — a faithful, minimal recreation of mini-SWE-agent, the harness used
+# by ProgramBench (Yang et al., 2026). Design principle: EVERYTHING the agent
+# does is a single bash command per turn. There are no bespoke tools and no
+# special-cased prompts — that minimalism is the whole point (paper §B.1).
+#
+# The operational limits below are taken directly from the paper.
+
+agent:
+  step_limit: 1000              # paper: 1,000 steps
+  time_limit_sec: 21600         # paper: 6 hours
+  warn_steps_remaining: 20      # paper: soft warning when < 20 steps remain
+  warn_minutes_remaining: 10    # paper: soft warning when < 10 minutes remain
+  # A long, unique marker so an incidental mention can't end the run early.
+  submit_sentinel: "CLAUDIUS_TASK_COMPLETE_a7f3e1"
+
+environment:
+  kind: local                   # local | docker
+  action_timeout_sec: 180       # paper: 3 minutes per action
+  output_char_limit: 10000      # paper: truncate command output over 10,000 chars
+  output_keep_each_side: 5000   # paper: keep the first and last 5,000 chars
+  docker_image: "ubuntu:22.04"  # paper base image (only used when kind: docker)
+  docker_network: "none"        # paper: no internet at inference time
+
+model:
+  name: "openai/gpt-4o-mini"          # any OpenRouter / OpenAI-compatible slug
+  base_url: "https://openrouter.ai/api/v1"
+  api_key_env: "OPENROUTER_API_KEY"
+  temperature: 0.0
+  max_tokens: 4096
+
+templates:
+  system: |-
+    You are a helpful assistant that can interact with a computer to solve tasks.
+
+    Your response to every message must contain a brief THOUGHT and then exactly
+    ONE bash code block with exactly ONE command (you may chain commands with &&
+    or ||, but it must be a single block):
+
+    ```bash
+    your_command_here
+    ```
+
+    Do not write anything after the code block. Work step by step: inspect, act,
+    then verify what you did.
+
+    IMPORTANT environment facts:
+    - There is no human in the loop. Every command you emit runs automatically.
+    - Each command runs in a FRESH shell in a fixed working directory. State does
+      NOT persist between commands: a `cd`, an exported variable, or a background
+      process started in one command is gone by the next. Use absolute paths or
+      chain everything you need with &&.
+    - Command output longer than {{output_char_limit}} characters is truncated.
+    - You have no internet access. Build/solve from what is in the environment.
+    - Each command must finish within {{action_timeout_min}} minutes.
+
+    When — and only when — the task is fully complete and verified, finish by
+    issuing exactly this command as your single command:
+
+    ```bash
+    echo {{submit_sentinel}}
+    ```
+
+  instance: |-
+    ## Task
+
+    {{task}}
+
+    Start by exploring the working directory. Remember: exactly one bash command
+    per response.
+
+  action_observation: |-
+    <returncode>{{returncode}}</returncode>
+    <output>
+    {{output}}
+    </output>
+
+  format_error: |-
+    Your last response did not contain exactly one bash code block with one
+    command. Respond again with a brief THOUGHT followed by exactly one:
+
+    ```bash
+    your_command_here
+    ```
+
+  step_warning: |-
+    [budget warning] {{reason}} Wrap up now: make sure your solution is complete
+    and that it compiles/runs, then finish with `echo {{submit_sentinel}}`.
